@@ -137,15 +137,35 @@ public class UserProcess {
      *			the array.
      * @return	the number of bytes successfully transferred.
      */
+    
     public int readVirtualMemory(int vaddr, byte[] data, int offset,
 				 int length) {
 	Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
 
 	byte[] memory = Machine.processor().getMemory();
 	
-	// for now, just assume that virtual addresses equal physical addresses
-	if (vaddr < 0 || vaddr >= memory.length)
+	// assume virtual addresses equals physical addresses
+	if (vaddr < 0 || vaddr >= memory.length) {
 	    return 0;
+        }
+            
+        // calc page number from addres
+        int vpn = Machine.processor().pageFromAddress(vaddr);                           
+        int offSetAddress = Machine.processor().offsetFromAddress(vaddr); 
+
+	TranslationEntry entry = null;      
+        entry = pageTable[vpn];
+	entry.used = true; 
+
+        int ppn = entry.ppn; 
+	int paddr = (ppn*pageSize) + offSetAddress;
+    
+        // check if physical page number is out of range
+        if (ppn < 0 || ppn >= Machine.processor().getNumPhysPages())  {
+            Lib.debug(dbgProcess,
+                "\t\t UserProcess.readVirtualMemory(): incorrect ppn: "+ppn);
+            return 0;
+        }  
 
 	int amount = Math.min(length, memory.length-vaddr);
 	System.arraycopy(memory, vaddr, data, offset, amount);
@@ -180,6 +200,7 @@ public class UserProcess {
      *			virtual memory.
      * @return	the number of bytes successfully transferred.
      */
+    
     public int writeVirtualMemory(int vaddr, byte[] data, int offset,
 				  int length) {
 	Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
@@ -189,10 +210,35 @@ public class UserProcess {
 	// for now, just assume that virtual addresses equal physical addresses
 	if (vaddr < 0 || vaddr >= memory.length)
 	    return 0;
+        
+      	// calc page number from address
+        int vpn = Machine.processor().pageFromAddress(vaddr);                
+        int addressOffset = Machine.processor().offsetFromAddress(vaddr);
 
-	int amount = Math.min(length, memory.length-vaddr);
-	System.arraycopy(data, offset, memory, vaddr, amount);
+        TranslationEntry starter = null; 
+        starter = pageTable[vpn];
+        starter.used = true; 
+        starter.dirty = true;
 
+        int ppn = starter.ppn;   
+        int paddr = (ppn*pageSize) + addressOffset; 
+
+        if (starter.readOnly) {
+            Lib.debug(dbgProcess,
+                     "\t\t [UserProcess.writeVirtualMemory]: write read-only page: "+ppn);
+            return 0;
+        }
+        // checks is page is out of range
+        if (ppn >= Machine.processor().getNumPhysPages() || ppn < 0)  { 
+            Lib.debug(dbgProcess, "\t\t [UserProcess.writeVirtualMemory]: bad ppn "+ppn);
+            return 0;
+        } 
+
+        int amount = Math.min(length, memory.length-vaddr);
+        Lib.debug(dbgProcess, 
+                "\t\t [UserProcess.writeVirtualMemory]: arrary copy amount: "+amount);
+        System.arraycopy(data, offset, memory, vaddr, amount);
+        
 	return amount;
     }
 
@@ -206,7 +252,8 @@ public class UserProcess {
      * @param	args	the arguments to pass to the executable.
      * @return	<tt>true</tt> if the executable was successfully loaded.
      */
-    private boolean load(String name, String[] args) {
+    
+private boolean load(String name, String[] args) {
 	Lib.debug(dbgProcess, "UserProcess.load(\"" + name + "\")");
 	
 	OpenFile executable = ThreadedKernel.fileSystem.open(name, false);
@@ -259,6 +306,13 @@ public class UserProcess {
 
 	// and finally reserve 1 page for arguments
 	numPages++;
+        
+        // setting up the page table component
+        pageTable = new TranslationEntry[numPages];
+        for (int i = 0; i < numPages; i++) {
+            int ppn = UserKernel.getFreePage();
+            pageTable[i] =  new TranslationEntry(i, ppn, true, false, false, false);
+         }  
 
 	if (!loadSections())
 	    return false;
@@ -279,8 +333,10 @@ public class UserProcess {
 	    stringOffset += argv[i].length;
 	    Lib.assertTrue(writeVirtualMemory(stringOffset,new byte[] { 0 }) == 1);
 	    stringOffset += 1;
+            
+             Lib.debug(dbgProcess, "[UserProcess.load] args[" + i + "]: " + args[i]); 
 	}
-
+        
 	return true;
     }
 
@@ -308,8 +364,16 @@ public class UserProcess {
 	    for (int i=0; i<section.getLength(); i++) {
 		int vpn = section.getFirstVPN()+i;
 
-		// for now, just assume virtual addresses=physical addresses
+		// assume virtual addresses equalsphysical addresses
 		section.loadPage(i, vpn);
+                
+                // translate virtual page to physical page
+                TranslationEntry entry = pageTable[vpn];
+                
+                entry.readOnly = section.isReadOnly();   
+                int ppn = entry.ppn;
+
+                section.loadPage(i, ppn);
 	    }
 	}
 	
