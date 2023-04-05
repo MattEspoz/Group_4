@@ -47,6 +47,8 @@ public class UserKernel extends ThreadedKernel {
 	while (c != 'q');
 
 	System.out.println("");
+	userprogSelfTest selfTestProcess = new userprogSelfTest();
+	selfTestProcess.run();
     }
 
     /**
