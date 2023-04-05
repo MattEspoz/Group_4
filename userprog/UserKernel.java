@@ -3,6 +3,7 @@ package nachos.userprog;
 import nachos.machine.*;
 import nachos.threads.*;
 import nachos.userprog.*;
+import java.util.LinkedList;
 
 /**
  * A kernel that can support multiple user processes.
@@ -27,6 +28,11 @@ public class UserKernel extends ThreadedKernel {
 	Machine.processor().setExceptionHandler(new Runnable() {
 		public void run() { exceptionHandler(); }
 	    });
+        
+         int numPhysPages = Machine.processor().getNumPhysPages();     // @BAA
+     for(int i = 0; i < numPhysPages; i++)                         // @BAA          
+        pageTable.add(i);                                         // @BAA
+        
     }
 
     /**
@@ -47,8 +53,6 @@ public class UserKernel extends ThreadedKernel {
 	while (c != 'q');
 
 	System.out.println("");
-	userprogSelfTest selfTestProcess = new userprogSelfTest();
-	selfTestProcess.run();
     }
 
     /**
@@ -101,6 +105,36 @@ public class UserKernel extends ThreadedKernel {
 
 	KThread.currentThread().finish();
     }
+    
+    /**
+     * Return number of a free pages, return -1 otherwise
+     * 
+     */
+    public static int getFreePage() {
+        int pageNumber = -1;
+        
+        Machine.interrupt().disable();
+        if (pageTable.isEmpty() == false) {
+           pageNumber = pageTable.removeFirst();
+        }
+        
+        Machine.interrupt().enable();
+        
+        return pageNumber;
+    }
+
+    /**
+     * Add free page into page list
+     */
+    public static void addFreePage(int pageNumber) {
+       Lib.assertTrue(pageNumber >= 0 && pageNumber < 
+               Machine.processor().getNumPhysPages());
+       
+       Machine.interrupt().disable();
+       pageTable.add(pageNumber);
+       Machine.interrupt().enable(); 
+    }                                                              // @BBA 
+
 
     /**
      * Terminate this kernel. Never returns.
@@ -114,4 +148,5 @@ public class UserKernel extends ThreadedKernel {
 
     // dummy variables to make javac smarter
     private static Coff dummy1 = null;
+    private static LinkedList<Integer> pageTable = new LinkedList<Integer>(); 
 }
